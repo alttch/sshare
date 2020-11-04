@@ -99,8 +99,8 @@ _d.prev = 0
 
 
 def progress(mon):
-    b = mon.bytes_read
-    pbar.update(int((b - _d.prev) / 1000))
+    b = int(mon.bytes_read / 1000)
+    pbar.update(b - _d.prev)
     _d.prev = b
 
 
@@ -122,6 +122,7 @@ except Exception as e:
     print(colored(e, color='red', attrs='bold'))
     exit(1)
 
+pbar.clear()
 pbar.close()
 print(
     dedent(f"""

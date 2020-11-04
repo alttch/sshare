@@ -1,0 +1,4 @@
+sshare:
+  url: https://some.domain.com
+  upload-key: verysecretkey
+  timeout: 3600

@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+
+import sys
+import argparse
+import os
+from io import BytesIO
+from textwrap import dedent
+from types import SimpleNamespace
+
+import requests
+import yaml
+
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+from tqdm import tqdm
+from neotermcolor import colored
+
+_d = SimpleNamespace()
+
+try:
+    with open(f'{os.path.expanduser("~")}/.sshare.yml') as fh:
+        config = yaml.safe_load(fh)['sshare']
+except FileNotFoundError:
+    config = {}
+
+ap = argparse.ArgumentParser()
+
+ap.add_argument('FILE', help='File to share ("-" for stdin [text])')
+
+ap.add_argument('-u',
+                '--url',
+                help='Service URL',
+                default=config.get('url', 'http://localhost:8008'))
+
+ap.add_argument('-k',
+                '--key',
+                help='upload key',
+                default=config.get('upload-key'))
+
+ap.add_argument('-T',
+                '--timeout',
+                help='timeout',
+                default=config.get('timeout', 5),
+                type=int)
+
+ap.add_argument('-s',
+                '--one-shot',
+                help='One-shot sharing',
+                action='store_true')
+
+ap.add_argument('-x', '--expires', help='Expiration (in seconds)', type=int)
+
+a = ap.parse_args()
+
+headers = {}
+if a.key:
+    headers['X-Auth-Key'] = a.key
+
+data = {}
+
+if a.one_shot:
+    data['oneshot'] = '1'
+
+if a.expires:
+    data['expires'] = str(a.expires)
+
+if a.FILE == '-':
+    b = BytesIO()
+    s = sys.stdin.buffer.read()
+    try:
+        s.decode()
+        ctype = 'text/plain'
+        ext = 'txt'
+    except:
+        ctype = 'application/octet-stream'
+        ext = 'dat'
+    b.write(s)
+    b.seek(0)
+    size = len(s)
+    files = {
+        'file': (
+            f'paste.{ext}',
+            b,
+        )
+    }
+else:
+    size = os.path.getsize(a.FILE)
+    files = {'file': (a.FILE, open(a.FILE, 'rb'))}
+
+fname = 'STDIN' if a.FILE == '-' else os.path.basename(a.FILE)
+
+print(f'>> {colored(a.url, color="grey")}')
+
+_d.prev = 0
+
+
+def progress(mon):
+    b = mon.bytes_read
+    pbar.update(b - _d.prev)
+    _d.prev = b
+
+
+data.update(files)
+
+e = MultipartEncoder(fields=data)
+m = MultipartEncoderMonitor(e, progress)
+
+headers['Content-Type'] = m.content_type
+
+pbar = tqdm(total=size, unit="KB", desc=fname)
+
+try:
+    r = requests.post(f'{a.url}/u', data=m, headers=headers, timeout=a.timeout)
+    if not r.ok:
+        raise RuntimeError(f'Server response code: {r.status_code} {r.reason}')
+except Exception as e:
+    pbar.close()
+    print(colored(e, color='red', attrs='bold'))
+    exit(1)
+
+pbar.close()
+print(
+    dedent(f"""
+        {colored(fname + " uploaded", color="green")}
+
+        Access URL: {colored(r.headers["Location"], color="cyan", attrs="bold")}
+        Expires: {r.headers["Expires"]}
+        """))
+
+if a.one_shot:
+    print(colored('(Single access attempt allowed)', color='yellow'))
+    print()

@@ -1,0 +1,2 @@
+# sshare
+secure share client

@@ -24,7 +24,7 @@ except FileNotFoundError:
 
 ap = argparse.ArgumentParser()
 
-ap.add_argument('FILE', help='File to share ("-" for stdin [text])')
+ap.add_argument('FILE', help='File to share ("-" for stdin [text])', nargs='?')
 
 ap.add_argument('-u',
                 '--url',
@@ -64,6 +64,9 @@ if a.expires:
     data['expires'] = str(a.expires)
 
 if a.FILE == '-':
+    a.FILE = None
+
+if not a.FILE:
     b = BytesIO()
     s = sys.stdin.buffer.read()
     try:
@@ -76,6 +79,8 @@ if a.FILE == '-':
     b.write(s)
     b.seek(0)
     size = len(s)
+    if size == 0:
+        exit(0)
     files = {
         'file': (
             f'paste.{ext}',
@@ -86,7 +91,7 @@ else:
     size = os.path.getsize(a.FILE)
     files = {'file': (a.FILE, open(a.FILE, 'rb'))}
 
-fname = 'STDIN' if a.FILE == '-' else os.path.basename(a.FILE)
+fname = 'STDIN' if not a.FILE else os.path.basename(a.FILE)
 
 print(f'>> {colored(a.url, color="grey")}')
 

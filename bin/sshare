@@ -100,7 +100,7 @@ _d.prev = 0
 
 def progress(mon):
     b = mon.bytes_read
-    pbar.update(b - _d.prev)
+    pbar.update(int((b - _d.prev) / 1000))
     _d.prev = b
 
 
@@ -111,7 +111,7 @@ m = MultipartEncoderMonitor(e, progress)
 
 headers['Content-Type'] = m.content_type
 
-pbar = tqdm(total=size, unit="KB", desc=fname)
+pbar = tqdm(total=int(size / 1000), unit="KB", desc=fname)
 
 try:
     r = requests.post(f'{a.url}/u', data=m, headers=headers, timeout=a.timeout)

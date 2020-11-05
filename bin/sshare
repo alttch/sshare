@@ -6,6 +6,7 @@ import os
 from io import BytesIO
 from textwrap import dedent
 from types import SimpleNamespace
+from functools import partial
 
 import requests
 import yaml
@@ -16,6 +17,25 @@ from neotermcolor import colored
 
 _d = SimpleNamespace()
 
+
+def safe_request(rfn, on_except=None):
+    try:
+        r = rfn()
+        if not r.ok:
+            raise RuntimeError(
+                f'Server response code: {r.status_code} {r.reason}')
+        return r
+    except Exception as e:
+        if on_except:
+            on_except()
+        print(colored(e, color='red', attrs='bold'))
+        exit(1)
+
+
+def ok():
+    print(colored('OK', color='green', attrs='bold'))
+
+
 try:
     with open(f'{os.path.expanduser("~")}/.sshare.yml') as fh:
         config = yaml.safe_load(fh)['sshare']
@@ -24,7 +44,9 @@ except FileNotFoundError:
 
 ap = argparse.ArgumentParser()
 
-ap.add_argument('FILE', help='File to share ("-" for stdin [text])', nargs='?')
+ap.add_argument('FILE',
+                help='File to share ("-" for stdin [text]) or command (c:)',
+                nargs='?')
 
 ap.add_argument('-u',
                 '--url',
@@ -62,6 +84,38 @@ if a.one_shot:
 
 if a.expires:
     data['expires'] = str(a.expires)
+
+print(a.FILE)
+
+if a.FILE is not None and a.FILE.startswith('c:'):
+    if a.FILE == 'c:token':
+        r = safe_request(
+            partial(requests.post,
+                    f'{a.url}/api/v1/token',
+                    data=data,
+                    headers=headers,
+                    timeout=a.timeout))
+        print(f'One-time token created, expires: {r.headers["Expires"]}')
+        print()
+        print(colored(r.json()['token'], color='white', attrs='bold'))
+    elif a.FILE.startswith('c:delete:token:'):
+        safe_request(
+            partial(requests.delete,
+                    f'{a.url}/api/v1/token/{a.FILE[9:]}',
+                    headers=headers,
+                    timeout=a.timeout))
+        ok()
+    elif a.FILE.startswith('c:delete'):
+        safe_request(
+            partial(requests.delete,
+                    f'{a.FILE[9:]}',
+                    headers=headers,
+                    timeout=a.timeout))
+        ok()
+    else:
+        print(colored('Command unsupported', color='red', attrs='bold'))
+        exit(2)
+    exit(0)
 
 if a.FILE == '-':
     a.FILE = None
@@ -113,14 +167,12 @@ headers['Content-Type'] = m.content_type
 
 pbar = tqdm(total=int(size / 1000), unit="KB", desc=fname)
 
-try:
-    r = requests.post(f'{a.url}/u', data=m, headers=headers, timeout=a.timeout)
-    if not r.ok:
-        raise RuntimeError(f'Server response code: {r.status_code} {r.reason}')
-except Exception as e:
-    pbar.close()
-    print(colored(e, color='red', attrs='bold'))
-    exit(1)
+r = safe_request(partial(requests.post,
+                         f'{a.url}/u',
+                         data=m,
+                         headers=headers,
+                         timeout=a.timeout),
+                 on_except=pbar.close)
 
 pbar.clear()
 pbar.close()

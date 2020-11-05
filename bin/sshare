@@ -85,8 +85,6 @@ if a.one_shot:
 if a.expires:
     data['expires'] = str(a.expires)
 
-print(a.FILE)
-
 if a.FILE is not None and a.FILE.startswith('c:'):
     if a.FILE == 'c:token':
         r = safe_request(

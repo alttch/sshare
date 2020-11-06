@@ -1,6 +1,8 @@
 # sshare
 secure share client
 
+https://github.com/alttch/secureshare
+
 ## Commands
 
 * c:token - create new one-time token

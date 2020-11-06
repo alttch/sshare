@@ -18,6 +18,32 @@ from neotermcolor import colored
 _d = SimpleNamespace()
 
 
+def gen_random_str(length=32):
+    """
+    pyaltt2 copy/paste to avoid unnecesseary imports
+    """
+    import string
+    import random
+    symbols = string.ascii_letters + '0123456789'
+    return ''.join(random.choice(symbols) for i in range(length))
+
+
+def encrypt_data(data, key=None):
+    if key is None:
+        key = gen_random_str(12)
+    import subprocess
+
+    p = subprocess.run(
+        'openssl aes-256-cbc -a -salt -pbkdf2 -pass stdin'.split(),
+        input=key.encode() + '\n'.encode() + data,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE)
+
+    if p.returncode:
+        raise RuntimeError(f'openssl error {p.stderr}')
+    return key, p.stdout
+
+
 def safe_request(rfn, on_except=None):
     try:
         r = rfn()
@@ -71,7 +97,29 @@ ap.add_argument('-s',
 
 ap.add_argument('-x', '--expires', help='Expiration (in seconds)', type=int)
 
+ap.add_argument('-c',
+                '--encrypt',
+                help='Encrypt file on the client-side',
+                action='store_true')
+
+ap.add_argument('-w',
+                '--prompt-password',
+                help='Ask for encryption password, instead of auto-generation',
+                action='store_true')
+
 a = ap.parse_args()
+
+LOCAL_KEY = None
+
+if a.prompt_password:
+    from getpass import getpass
+    pass1 = getpass('Password: ')
+    pass2 = getpass('Repeat password: ')
+    if pass1 != pass2:
+        print(colored('Passwords don\'t match', color='red'))
+        exit(2)
+    else:
+        LOCAL_KEY = pass1
 
 headers = {}
 if a.key:
@@ -128,6 +176,8 @@ if not a.FILE:
     except:
         ctype = 'application/octet-stream'
         ext = 'dat'
+    if a.encrypt:
+        LOCAL_KEY, s = encrypt_data(s, LOCAL_KEY)
     b.write(s)
     b.seek(0)
     size = len(s)
@@ -140,8 +190,19 @@ if not a.FILE:
         )
     }
 else:
-    size = os.path.getsize(a.FILE)
-    files = {'file': (a.FILE, open(a.FILE, 'rb'))}
+    if a.encrypt:
+        with open(a.FILE, 'rb') as fh:
+            contents = fh.read()
+        LOCAL_KEY, s = encrypt_data(contents, LOCAL_KEY)
+        b = BytesIO()
+        b.write(s)
+        b.seek(0)
+        size = len(s)
+        stream = b
+    else:
+        size = os.path.getsize(a.FILE)
+        stream = open(a.FILE, 'rb')
+    files = {'file': (a.FILE, stream)}
 
 fname = 'STDIN' if not a.FILE else os.path.basename(a.FILE)
 
@@ -157,6 +218,9 @@ def progress(mon):
 
 
 data.update(files)
+
+if LOCAL_KEY:
+    data['raw'] = '1'
 
 e = MultipartEncoder(fields=data)
 m = MultipartEncoderMonitor(e, progress)
@@ -174,14 +238,29 @@ r = safe_request(partial(requests.post,
 
 pbar.clear()
 pbar.close()
+url = r.headers["Location"]
 print(
     dedent(f"""
         {colored(fname + " uploaded", color="green")}
 
-        Access URL: {colored(r.headers["Location"], color="cyan", attrs="bold")}
+        Access URL: {colored(url, color="cyan", attrs="bold")}
         Expires: {r.headers["Expires"]}
         """))
 
 if a.one_shot:
     print(colored('(Single access attempt allowed)', color='yellow'))
+    print()
+
+if a.encrypt:
+    print(colored('=' * (len(url) + 12), color='grey'))
+    if not a.prompt_password:
+        print(f'Decrypt password: {LOCAL_KEY}')
+        print()
+    print(
+        colored(
+            f'curl -s {url} |\n    openssl aes-256-cbc -d -a -pbkdf2'
+            f' -out {url.rsplit("/",1)[-1]}',
+            color='green',
+            attrs='bold'))
+    print(colored('=' * (len(url) + 12), color='grey'))
     print()
